@@ -1,8 +1,8 @@
 import numpy as np
 import pandas as pd
 from sklearn.impute import SimpleImputer
-movies = pd.read_csv('data/movie.csv')
-ratings = pd.read_csv('data/rating.csv')
+# movies = pd.read_csv('data/movie.csv')
+# ratings = pd.read_csv('data/rating.csv')
 
 class KMeansClustering:
     def __init__(self, X, num_clusters):
@@ -10,6 +10,7 @@ class KMeansClustering:
         self.max_iterations = 100
         self.num_examples = X.shape[0]
         self.num_features = X.shape[1]
+        self.most_rated_movies_1k_small = None # helper
 
     def initialize_random_centroids(self, X):
         centroids = np.zeros((self.K, self.num_features))
@@ -69,6 +70,7 @@ class KMeansClustering:
         y_pred = self.predict_cluster(clusters, X)
 
         return y_pred
+    
 
 def get_most_rated_movies(user_movie_ratings, max_number_of_movies):
     # 1- Count
@@ -103,59 +105,75 @@ def sort_by_rating_density(user_movie_ratings, n_movies, n_users):
     most_rated_movies = get_users_who_rate_the_most(most_rated_movies, n_users)
     return most_rated_movies
 
-def find_movies(number_of_movies, user_id):
-    # Przycinanie tabeli na podstawie popularności filmów
-    # Obliczanie liczby ocen dla każdego filmu
-    movie_counts = ratings['movieId'].value_counts()
-
-    # Lista najpopularniejszych filmów (np. 1000 najpopularniejszych)
-    top_movies = movie_counts.head(5000) #.index.tolist()
-
-    # Przycinanie do najpopularniejszych filmów
-    ratings_pruned = ratings[ratings['movieId'].isin(top_movies)]
-
-    # Merge the two tables then pivot so we have Users X Movies dataframe
-    ratings_title = pd.merge(ratings_pruned, movies[['movieId', 'title']], on='movieId' )
-    user_movie_ratings = pd.pivot_table(ratings_title, index='userId', columns= 'title', values='rating')
-    most_rated_movies_1k = get_most_rated_movies(user_movie_ratings, 1000)
-
-    most_rated_movies_1k_small = get_users_who_rate_the_most(most_rated_movies_1k, 10000)
-    imputer = SimpleImputer(strategy='mean')
-    small_imputed = imputer.fit_transform(most_rated_movies_1k_small)
-    # small = pd.DataFrame(small_imputed)
-    small = pd.DataFrame(small_imputed, columns=most_rated_movies_1k_small.columns)
-    selected_rows = small.index[:10000]
-    selected_columns = small.columns[:1000]
-
-    small = small.loc[selected_rows, selected_columns]
-
-    num_clusters = 7
-    X = small.values
-
-    # Tutaj dzieje się cała magia
-    Kmeans = KMeansClustering(X, num_clusters)
-    y_pred = Kmeans.fit(X)
-
-    # Dodaj nową kolumnę do small z przypisanymi grupami
-    small.insert(0, 'userId', most_rated_movies_1k_small.index)
-    small.insert(1, 'group', y_pred)
-
-    # Teraz dla wybranego użytkownika trzeba określić jego grupę
-    user_row = small.loc[small['userId'] == user_id]
-
-    # Sprawdź wartość w kolumnie 'group' dla wybranego użytkownika
-    user_group = user_row['group'].values[0]
-
-    cluster = small[small.group == user_group].drop(['group'], axis=1)
-    user_2_ratings  = most_rated_movies_1k_small.loc[user_id, :]
-
-    # Which movies did they not rate? 
-    user_2_unrated_movies =  user_2_ratings[user_2_ratings.isnull()]
-    # What are the ratings of these movies the user did not rate?
-    avg_ratings = pd.concat([user_2_unrated_movies, cluster.mean()], axis=1, join='inner').loc[:,0]
-    # Let's sort by rating so the highest rated movies are presented first
-    ans = avg_ratings.sort_values(ascending=False)[:number_of_movies]
-
-    result_df = pd.DataFrame(ans.index, columns=['title'])
+class SystemRekomendacji:
+    def __init__(self, ratings, movies):
+        self.ratings = ratings
+        self.movies = movies
     
-    return result_df
+    def prepare_clusters(self):
+        ratings = self.ratings
+        movies = self.movies
+        # Przycinanie tabeli na podstawie popularności filmów
+        # Obliczanie liczby ocen dla każdego filmu
+        movie_counts = ratings['movieId'].value_counts()
+
+        # Lista najpopularniejszych filmów (np. 1000 najpopularniejszych)
+        top_movies = movie_counts.head(5000) #.index.tolist()
+
+        # Przycinanie do najpopularniejszych filmów
+        ratings_pruned = ratings[ratings['movieId'].isin(top_movies)]
+
+        # Merge the two tables then pivot so we have Users X Movies dataframe
+        ratings_title = pd.merge(ratings_pruned, movies[['movieId', 'title']], on='movieId' )
+        user_movie_ratings = pd.pivot_table(ratings_title, index='userId', columns= 'title', values='rating')
+        most_rated_movies_1k = get_most_rated_movies(user_movie_ratings, 1000)
+
+        most_rated_movies_1k_small = get_users_who_rate_the_most(most_rated_movies_1k, 10000)
+        imputer = SimpleImputer(strategy='mean')
+        small_imputed = imputer.fit_transform(most_rated_movies_1k_small)
+        small = pd.DataFrame(small_imputed, columns=most_rated_movies_1k_small.columns)
+        selected_rows = small.index[:10000]
+        selected_columns = small.columns[:1000]
+
+        # Save helper
+        self.small_helper = most_rated_movies_1k
+
+        small = small.loc[selected_rows, selected_columns]
+
+        num_clusters = 7
+        X = small.values
+
+        # Tutaj dzieje się cała magia
+        Kmeans = KMeansClustering(X, num_clusters)
+        y_pred = Kmeans.fit(X)
+
+        # Dodaj nową kolumnę do small z przypisanymi grupami
+        small.insert(0, 'userId', most_rated_movies_1k_small.index)
+        small.insert(1, 'group', y_pred)
+        
+        self.klastry = small
+
+        return True
+
+    def recommend_movies(self, number_of_movies, user_id):
+        most_rated_movies_1k_small = self.small_helper
+        small = self.klastry
+        # Teraz dla wybranego użytkownika trzeba określić jego grupę
+        user_row = small.loc[small['userId'] == user_id]
+
+        # Sprawdź wartość w kolumnie 'group' dla wybranego użytkownika
+        user_group = user_row['group'].values[0]
+
+        cluster = small[small.group == user_group].drop(['group'], axis=1)
+        user_2_ratings  = most_rated_movies_1k_small.loc[user_id, :]
+
+        # Which movies did they not rate? 
+        user_2_unrated_movies =  user_2_ratings[user_2_ratings.isnull()]
+        # What are the ratings of these movies the user did not rate?
+        avg_ratings = pd.concat([user_2_unrated_movies, cluster.mean()], axis=1, join='inner').loc[:,0]
+        # Let's sort by rating so the highest rated movies are presented first
+        ans = avg_ratings.sort_values(ascending=False)[:number_of_movies]
+
+        result_df = pd.DataFrame(ans.index, columns=['title'])
+        
+        return result_df
