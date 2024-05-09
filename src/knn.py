@@ -74,27 +74,21 @@ class MovieRecommender:
     def recommend_movies(self, userId, k = 1, all = False):
         knn = KNN(self.movies, self.ratings)
         top_movies, max_rating = self.get_top_rated_movies_for_user(userId)
+        neighbors = []
         print("Maximum rating for user", userId, ":", max_rating)
         print("Movies with the maximum rating:", top_movies)
         if all is True:
             for movieId in top_movies:
-                nearest_neighbors = knn.find_nearest_neighbors((movieId, userId), k)
-                movie_info = self.get_movie_info(movieId)
-                
-                print(f"\nFor movie {movie_info}, the {k} nearest neighbors are:")
-                for neighbor in nearest_neighbors:
-                    neighbor_info = self.get_movie_info(neighbor[0])
-                    print(f"- {neighbor_info} with similarity {neighbor[1]:.2f}")
-                    print("____________________________________________________________________")
+                neighbors.append(self.find_recommended_movies(self, knn, movieId, userId, k))
         else:
-            movieId = top_movies[0]
-            nearest_neighbors = knn.find_nearest_neighbors((movieId, userId), k)
-            movie_info = self.get_movie_info(movieId)
-            
-            print(f"\nFor movie {movie_info}, the {k} nearest neighbors are:")
-            for neighbor in nearest_neighbors:
-                neighbor_info = self.get_movie_info(neighbor[0])
-                print(f"- {neighbor_info} with similarity {neighbor[1]:.2f}")
-                print("____________________________________________________________________")
+            neighbors.append(self.find_recommended_movies(knn, top_movies[0], userId, k))
+        return neighbors
+    
+    def find_recommended_movies(self, knn, movieId, userId, k):
+        nearest_neighbors = knn.find_nearest_neighbors((movieId, userId), k)
+        neighbor_ids = []
+        for neighbor in nearest_neighbors:
+            neighbor_ids.append(neighbor[0])
+        return neighbor_ids
     
 
