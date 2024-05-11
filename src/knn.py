@@ -12,11 +12,6 @@ class KNN:
         self.pivot_table = df.pivot_table(index='movieId', columns='userId', values='rating').fillna(0)
         self.normalize_pivot_table()
     
-    def slice_data(self, df, scale):
-        total_rows = len(df)
-        n_rows_to_take = total_rows // scale  # Integer division
-        return df.head(n_rows_to_take)
-
     def normalize_pivot_table(self):
         max_value = self.pivot_table.max().max()
         min_value = self.pivot_table.min().min()
